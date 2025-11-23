@@ -1,5 +1,5 @@
 -- ====================================================================
--- SplashHub: KILL信号削除済み UI安定版
+-- SplashHub: Line距離制限解除付き UI安定版
 -- ====================================================================
 local P = game:GetService("Players").LocalPlayer;
 local UIS = game:GetService("UserInputService");
@@ -17,6 +17,8 @@ local GRAB_DETECTION_OBJECTS = {"BodyPosition", "BodyVelocity", "BodyGyro", "Ali
 local GRAB_EVENTS = {"GrabEvents.ExtendGrabLine", "CharacterEvents.Look"};
 
 local isFlying = false;
+local isLineExtending = false; -- ★ ライン拡張機能のフラグ
+local currentLinePart = nil;   -- ★ 現在のラインPart
 local bodyVelocity = nil;
 local controlButton = nil;
 local speedTextBox = nil;
@@ -82,7 +84,7 @@ local function hookGrabEvents()
         if event and event:IsA("RemoteEvent") then
             local success, _ = pcall(function()
                 event.OnClientEvent:Connect(function()
-                    -- イベントをドロップさせる
+                    -- Lineの距離制限を制御するイベントを無効化
                 end);
             end)
             if success then
@@ -96,9 +98,65 @@ local function hookGrabEvents()
     end
 end
 
--- ★ KILL信号関連の関数 (sendKillSignal) は完全に削除されました。
+-- Line距離制限解除機能のロジック (★ 新機能)
+local function startLineExtension()
+    if isLineExtending then return end;
+    
+    local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart");
+    if not Root then showNotification("エラー: ラインの起点が見つかりません。", Color3.fromRGB(255, 0, 0)); return end;
+    
+    isLineExtending = true;
+    showNotification("Line拡張 ON (Fキーで停止)", Color3.fromRGB(150, 255, 150));
 
--- 掴みオブジェクトの検知と破壊 (KILL信号は送りません)
+    -- ラインPartの作成
+    currentLinePart = Instance.new("Part");
+    pcall(function()
+        currentLinePart.Parent = WS;
+        currentLinePart.Anchored = true;
+        currentLinePart.CanCollide = false;
+        currentLinePart.BrickColor = BrickColor.new("Really red");
+        currentLinePart.Material = Enum.Material.ForceField;
+        currentLinePart.Transparency = 0.5;
+    end)
+    
+    -- ライン描画のループ
+    RS:BindToRenderStep("LineExtension", Enum.RenderPriority.Camera.Value + 1, function()
+        if not isLineExtending or not currentLinePart or not Root then return end;
+        
+        -- マウス/画面中央からのRaycast (事実上の無限距離)
+        local mouseRay = WS.CurrentCamera:ScreenPointToRay(UIS:GetMouseLocation().X, UIS:GetMouseLocation().Y);
+        local targetPos = mouseRay.Origin + mouseRay.Direction * 10000; -- 10000スタッド先を目標に
+
+        -- ラインの計算
+        local startPos = Root.Position;
+        local direction = (targetPos - startPos).unit;
+        local distance = (targetPos - startPos).Magnitude;
+
+        -- Partのサイズと位置を設定
+        pcall(function()
+            -- 長さと位置
+            currentLinePart.Size = Vector3.new(0.2, 0.2, distance);
+            currentLinePart.CFrame = CFrame.new(startPos, targetPos) * CFrame.new(0, 0, -distance / 2);
+        end)
+    end)
+end
+
+local function stopLineExtension()
+    if not isLineExtending then return end;
+    
+    isLineExtending = false;
+    RS:UnbindFromRenderStep("LineExtension");
+    
+    if currentLinePart then
+        pcall(currentLinePart.Destroy, currentLinePart);
+        currentLinePart = nil;
+    end
+    
+    showNotification("Line拡張 OFF", Color3.fromRGB(255, 150, 150));
+end
+
+
+-- 掴みオブジェクトの検知と破壊
 local function setupGrabDetection(rootPart)
     if grabDetectionConnection and grabDetectionConnection.Connected then grabDetectionConnection:Disconnect(); end
     grabDetectionConnection = rootPart.ChildAdded:Connect(function(child)
@@ -111,7 +169,7 @@ local function setupGrabDetection(rootPart)
     end);
 end
 
--- 敵スクリプト無効化機能
+-- 敵スクリプト無効化機能 (変更なし)
 local function disableTargetScript()
     local playerScripts = P:FindFirstChild("PlayerScripts");
     if not playerScripts then return end
@@ -123,7 +181,7 @@ local function disableTargetScript()
     else showNotification("敵スクリプトは見つかりませんでした。", Color3.fromRGB(150, 150, 150)); end
 end
 
--- 飛行機能
+-- 飛行機能 (UIボタン操作) (変更なし)
 local function stopFlying()
     if not isFlying then return end;
     isFlying = false; failureCount = 0;
@@ -181,7 +239,7 @@ local function updateFlyMovement()
 end;
 
 
--- ラグドール無効化処理 (常時実行)
+-- ラグドール無効化処理 (常時実行) (変更なし)
 local function updateAntiRagdoll()
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     if H and H.Parent then
@@ -194,12 +252,12 @@ local function updateAntiRagdoll()
 end;
 
 
--- UI/ドラッグ機能
+-- UI/ドラッグ機能 (変更なし)
 local function startDrag(input) isDragging = true; dragOffset = input.Position - Vector2.new(MainFrame.AbsolutePosition.X, MainFrame.AbsolutePosition.Y); pcall(function() UIS.MouseIconEnabled = false end); end;
 local function updateDrag(input) if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then pcall(function() MainFrame.Position = UDim2.new(0, input.Position.X - dragOffset.X, 0, input.Position.Y - dragOffset.Y) end); end; end;
 local function endDrag(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then isDragging = false; dragOffset = nil; pcall(function() UIS.MouseIconEnabled = true end); end; end;
 
--- UI作成関数
+-- UI作成関数 (変更なし)
 local function createUI()
     local existingGui = P.PlayerGui:FindFirstChild("SplashHubControlGui");
     if existingGui then pcall(existingGui.Destroy, existingGui) end;
@@ -226,6 +284,19 @@ local function createUI()
     UIS.InputChanged:Connect(updateDrag);
     UIS.InputEnded:Connect(endDrag);
 end;
+
+
+-- キー入力ハンドラー (★ Line機能用)
+UIS.InputBegan:Connect(function(input, gameProcessedEvent)
+    if gameProcessedEvent then return end
+    if input.KeyCode == Enum.KeyCode.F then
+        if isLineExtending then
+            stopLineExtension();
+        else
+            startLineExtension();
+        end
+    end
+end)
 
 
 -- 初期化関数
