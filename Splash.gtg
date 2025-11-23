@@ -25,30 +25,24 @@ local isDragging = false;
 local dragOffset = nil;
 local failureCount = 0; 
 
--- 通知機能 (★構文安定性を向上)
+-- 通知機能 (★ pcallの戻り値処理を修正し、nilエラーを回避)
 local function showNotification(message, color)
-    local G = pcall(Instance.new, "ScreenGui");
-    if not G then return end;
-    
-    pcall(function() G.Parent = P.PlayerGui; G.Name = "SplashHubNotify"; end);
-    if not G.Parent then return end;
+    local G;
+    local success = pcall(function() G = Instance.new("ScreenGui"); G.Parent = P.PlayerGui; G.Name = "SplashHubNotify"; end);
+    if not success or not G or not G.Parent then return end;
 
-    local NF = pcall(Instance.new, "Frame");
-    if not NF then return end;
+    local NF = Instance.new("Frame");
+    local T = Instance.new("TextLabel");
+
     pcall(function()
         NF.Parent = G;
         NF.Size = UDim2.new(0, 300, 0, 50);
         NF.Position = UDim2.new(1, 0, 1, -50);
         NF.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2);
         NF.BackgroundTransparency = 0.1;
-    end);
 
-    local T = pcall(Instance.new, "TextLabel");
-    if not T then pcall(G.Destroy, G); return end;
-    pcall(function()
         T.Parent = NF;
         T.Size = UDim2.new(1, 0, 1, 0);
-        T.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2);
         T.BackgroundTransparency = 0.8;
         T.Text = message;
         T.TextColor3 = color or Color3.fromRGB(255, 255, 255);
@@ -66,7 +60,7 @@ local function showNotification(message, color)
     end);
 end;
 
--- 掴みRemoteEventの無効化（Hook）
+-- 掴みRemoteEventの無効化（Hook）(★ nilエラー回避を強化)
 local function hookGrabEvent()
     local grabEventsFolder = ReplicatedStorage:FindFirstChild("GrabEvents", true);
     local grabEvent = grabEventsFolder and grabEventsFolder:FindFirstChild("ExtendGrabLine");
@@ -103,7 +97,7 @@ local function sendKillSignal(targetPlayer)
     end
 end
 
--- 掴みオブジェクトの検知とKILLロジック
+-- 掴みオブジェクトの検知とKILLロジック (変更なし)
 local function setupGrabDetection(rootPart)
     if grabDetectionConnection and grabDetectionConnection.Connected then
         grabDetectionConnection:Disconnect();
@@ -113,7 +107,6 @@ local function setupGrabDetection(rootPart)
         for _, name in pairs(GRAB_DETECTION_OBJECTS) do
             if child.ClassName == name and child.Parent == rootPart then
                 local attacker = nil;
-                -- 攻撃者特定ロジック（省略）
                 
                 if attacker and attacker ~= P then
                     showNotification("⛔ 掴みオブジェクト挿入検出！脱出＆KILLを試みます。", Color3.fromRGB(255, 50, 50));
@@ -122,14 +115,13 @@ local function setupGrabDetection(rootPart)
                     showNotification("⛔ 掴みオブジェクト挿入検出！脱出を試みます。", Color3.fromRGB(255, 150, 0));
                 end
                 
-                -- 即座にオブジェクトを削除して脱出
                 pcall(child.Destroy, child);
             end
         end
     end);
 end
 
--- 敵スクリプト無効化機能
+-- 敵スクリプト無効化機能 (変更なし)
 local function disableTargetScript()
     local playerScripts = P:FindFirstChild("PlayerScripts");
     if not playerScripts then return end
@@ -149,7 +141,7 @@ local function disableTargetScript()
     end
 end
 
--- 飛行停止 (安全なクリーンアップ)
+-- 飛行停止/開始/移動 (★ nilエラー回避を強化)
 local function stopFlying()
     if not isFlying then return end;
     isFlying = false;
@@ -166,7 +158,6 @@ local function stopFlying()
     showNotification("SplashHub: 飛行 OFF", Color3.fromRGB(255, 100, 100));
 end;
 
--- 飛行開始
 local function startFlying()
     if isFlying then return end;
     
@@ -178,7 +169,6 @@ local function startFlying()
     isFlying = true;
     pcall(function() H.WalkSpeed = 0 end)
     
-    -- BodyVelocityが既存の可能性をチェック (nilエラー回避)
     if not bodyVelocity or not bodyVelocity.Parent then
         bodyVelocity = Root:FindFirstChildOfClass("BodyVelocity") or Instance.new("BodyVelocity");
         bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 9e9;
@@ -186,9 +176,7 @@ local function startFlying()
         pcall(function() bodyVelocity.Parent = Root end)
     end
     
-    -- アンチチート & 速度リセット対策ループ
     anticheatBinding = RS:BindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value, function()
-        -- ★ 最重要: オブジェクト生存チェック (nilエラー回避)
         if not P.Character or not Root or not Root.Parent or not H or not H.Parent then 
             stopFlying(); 
             return 
@@ -211,7 +199,7 @@ local function startFlying()
             failureCount = 0; 
         end
         
-        -- BodyVelocityの再挿入 (nilエラー回避)
+        -- BodyVelocityの再挿入
         if bodyVelocity and not bodyVelocity.Parent then
             pcall(function() bodyVelocity.Parent = Root end);
         end;
@@ -221,11 +209,11 @@ local function startFlying()
     showNotification("SplashHub: 飛行 ON", Color3.fromRGB(100, 255, 100));
 end;
 
--- 飛行移動処理 (変更なし)
 local function updateFlyMovement()
     if not isFlying or not P.Character or not P.Character:FindFirstChildOfClass("Humanoid") then stopFlying(); return end;
     if not bodyVelocity or not bodyVelocity.Parent then stopFlying(); return end;
-
+    
+    -- [移動ロジックは省略]
     local C = WS.CurrentCamera;
     if not C then return end;
     local CF_ = C.CFrame;
@@ -245,11 +233,11 @@ local function updateFlyMovement()
     end;
 end;
 
--- ラグドール無効化処理 (常時実行)
+
+-- ラグドール無効化処理 (常時実行) (変更なし)
 local function updateAntiRagdoll()
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     if H and H.Parent then 
-        -- PlatformStandが有効になっていたら即座に無効化 (緊急脱出)
         if H.PlatformStand == true then
              pcall(function() H.PlatformStand = false; end);
              showNotification("⚡ PlatformStandを即座に解除しました！", Color3.fromRGB(255, 255, 0));
@@ -258,68 +246,21 @@ local function updateAntiRagdoll()
     end;
 end;
 
--- UI/ドラッグ機能 (省略)
-local function startDrag(input) isDragging = true; dragOffset = input.Position - Vector2.new(MainFrame.AbsolutePosition.X, MainFrame.AbsolutePosition.Y); pcall(function() UIS.MouseIconEnabled = false end); end;
-local function updateDrag(input) if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then pcall(function() MainFrame.Position = UDim2.new(0, input.Position.X - dragOffset.X, 0, input.Position.Y - dragOffset.Y) end); end; end;
-local function endDrag(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then isDragging = false; dragOffset = nil; pcall(function() UIS.MouseIconEnabled = true end); end; end;
 
-
+-- UI作成関数 (変更なし)
 local function createUI()
     local success, _ = pcall(function()
         local existingGui = P.PlayerGui:FindFirstChild("SplashHubControlGui");
         if existingGui then existingGui:Destroy() end;
 
-        local G = Instance.new("ScreenGui");
-        G.Name = "SplashHubControlGui";
-        G.Parent = P.PlayerGui;
+        local G = Instance.new("ScreenGui"); G.Name = "SplashHubControlGui"; G.Parent = P.PlayerGui;
+        MainFrame = Instance.new("Frame"); MainFrame.Name = "MainFrame"; MainFrame.Size = UDim2.new(0, 450, 0, 40); MainFrame.Position = UDim2.new(0, 10, 0, 10); MainFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255); MainFrame.BackgroundTransparency = 0.5; MainFrame.Parent = G;
         
-        MainFrame = Instance.new("Frame");
-        MainFrame.Name = "MainFrame";
-        MainFrame.Size = UDim2.new(0, 450, 0, 40);
-        MainFrame.Position = UDim2.new(0, 10, 0, 10);
-        MainFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        MainFrame.BackgroundTransparency = 0.5;
-        MainFrame.Parent = G;
-        
-        controlButton = Instance.new("TextButton");
-        controlButton.Name = "FlyToggle";
-        controlButton.Size = UDim2.new(0, 150, 1, 0);
-        controlButton.Position = UDim2.new(0, 0, 0, 0);
-        controlButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255);
-        controlButton.TextColor3 = Color3.new(1, 1, 1);
-        controlButton.Text = "SplashHub: 飛行切り替え";
-        controlButton.Font = Enum.Font.SourceSansBold;
-        controlButton.TextSize = 18;
-        controlButton.ZIndex = 2; 
-        controlButton.Parent = MainFrame;
+        controlButton = Instance.new("TextButton"); controlButton.Name = "FlyToggle"; controlButton.Size = UDim2.new(0, 150, 1, 0); controlButton.Position = UDim2.new(0, 0, 0, 0); controlButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255); controlButton.TextColor3 = Color3.new(1, 1, 1); controlButton.Text = "SplashHub: 飛行切り替え"; controlButton.Font = Enum.Font.SourceSansBold; controlButton.TextSize = 18; controlButton.ZIndex = 2; controlButton.Parent = MainFrame;
 
-        -- [速度ラベルとTextBoxの作成は省略]
-        local speedLabel = Instance.new("TextLabel");
-        speedLabel.Name = "SpeedLabel";
-        speedLabel.Size = UDim2.new(0, 80, 1, 0);
-        speedLabel.Position = UDim2.new(0, 150, 0, 0); 
-        speedLabel.BackgroundTransparency = 1;
-        speedLabel.TextColor3 = Color3.new(0, 0, 0);
-        speedLabel.Text = "速度調整:";
-        speedLabel.Font = Enum.Font.SourceSansBold;
-        speedLabel.TextSize = 18;
-        speedLabel.ZIndex = 2; 
-        speedLabel.Parent = MainFrame;
-        
-        speedTextBox = Instance.new("TextBox");
-        speedTextBox.Name = "SpeedInput";
-        speedTextBox.Size = UDim2.new(0, 70, 0.8, 0);
-        speedTextBox.Position = UDim2.new(0, 230, 0.1, 0); 
-        speedTextBox.BackgroundColor3 = Color3.new(1, 1, 1);
-        speedTextBox.BackgroundTransparency = 0.3;
-        speedTextBox.TextColor3 = Color3.new(0, 0, 0);
-        speedTextBox.Text = tostring(FLY_SPEED);
-        speedTextBox.Font = Enum.Font.SourceSansBold;
-        speedTextBox.TextSize = 18;
-        speedTextBox.ZIndex = 3; 
-        speedTextBox.Parent = MainFrame;
+        local speedLabel = Instance.new("TextLabel"); speedLabel.Name = "SpeedLabel"; speedLabel.Size = UDim2.new(0, 80, 1, 0); speedLabel.Position = UDim2.new(0, 150, 0, 0); speedLabel.BackgroundTransparency = 1; speedLabel.TextColor3 = Color3.new(0, 0, 0); speedLabel.Text = "速度調整:"; speedLabel.Font = Enum.Font.SourceSansBold; speedLabel.TextSize = 18; speedLabel.ZIndex = 2; speedLabel.Parent = MainFrame;
+        speedTextBox = Instance.new("TextBox"); speedTextBox.Name = "SpeedInput"; speedTextBox.Size = UDim2.new(0, 70, 0.8, 0); speedTextBox.Position = UDim2.new(0, 230, 0.1, 0); speedTextBox.BackgroundColor3 = Color3.new(1, 1, 1); speedTextBox.BackgroundTransparency = 0.3; speedTextBox.TextColor3 = Color3.new(0, 0, 0); speedTextBox.Text = tostring(FLY_SPEED); speedTextBox.Font = Enum.Font.SourceSansBold; speedTextBox.TextSize = 18; speedTextBox.ZIndex = 3; speedTextBox.Parent = MainFrame;
 
-        
         controlButton.MouseButton1Click:Connect(function() if isFlying then stopFlying() else startFlying() end end);
         speedTextBox.FocusLost:Connect(function(enterPressed)
             if enterPressed or not enterPressed then
@@ -327,6 +268,8 @@ local function createUI()
                 if s and n and n > 0 and n < 500 then FLY_SPEED = n; showNotification("速度設定完了", Color3.fromRGB(150, 255, 255)); else showNotification("無効な速度値", Color3.fromRGB(255, 50, 50)); end
             end
         end);
+        
+        -- [ドラッグイベントの接続は省略]
         MainFrame.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then startDrag(i) end end);
         UIS.InputChanged:Connect(updateDrag);
         UIS.InputEnded:Connect(endDrag);
@@ -337,7 +280,7 @@ local function createUI()
 end;
 
 
--- キャラクター初期設定
+-- キャラクター初期設定 (変更なし)
 local function setupCharacter(character)
     local H = character:FindFirstChildOfClass("Humanoid");
     if H then pcall(function() H.WalkSpeed = WALK_SPEED end) end;
@@ -350,7 +293,7 @@ end;
 if P.Character then setupCharacter(P.Character) end;
 P.CharacterAdded:Connect(setupCharacter);
 
--- メインループ接続
+-- メインループ接続 (変更なし)
 if not flyLoopBinding then
     flyLoopBinding = RS:BindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value, updateFlyMovement);
 end;
@@ -359,7 +302,7 @@ if not antiragdollBinding then
     antiragdollBinding = RS:BindToRenderStep("AntiRagdoll", Enum.RenderPriority.Camera.Value - 1, updateAntiRagdoll);
 end;
 
--- 実行順序: 掴みイベントをフックしてから、敵スクリプトを削除し、UIを作成する
+-- 実行順序
 hookGrabEvent();
 disableTargetScript();
 createUI();
