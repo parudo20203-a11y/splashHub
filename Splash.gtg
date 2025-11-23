@@ -33,7 +33,7 @@ local function createUI()
     controlButton.Position = UDim2.new(0, 10, 0, 10)
     controlButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
     controlButton.TextColor3 = Color3.new(1, 1, 1)
-    controlButton.Text = "LoLHub: 飛行 OFF"
+    controlButton.Text = "SplashHub: 飛行 OFF"
     controlButton.Font = Enum.Font.SourceSansBold
     controlButton.TextSize = 18
     controlButton.Parent = Gui
