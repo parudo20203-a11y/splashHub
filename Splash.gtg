@@ -1,5 +1,5 @@
 -- ====================================================================
--- SplashHub: Line距離制限解除付き UI安定版
+-- SplashHub: 掴み強制実行＆距離制限解除版
 -- ====================================================================
 local P = game:GetService("Players").LocalPlayer;
 local UIS = game:GetService("UserInputService");
@@ -13,12 +13,21 @@ local WALK_SPEED = 32;
 local FLY_SPEED = 40;
 local MAX_FAILURES = 5;
 local GRAB_DETECTION_OBJECTS = {"BodyPosition", "BodyVelocity", "BodyGyro", "AlignOrientation", "AlignPosition", "Attachment"};
--- 掴みイベントと視点リセットイベントのフック対象
-local GRAB_EVENTS = {"GrabEvents.ExtendGrabLine", "CharacterEvents.Look"};
+-- 強化されたフック対象リスト
+local GRAB_EVENTS = {
+    "GrabEvents.ExtendGrabLine", 
+    "CharacterEvents.Look",
+    "GrabEvents.GrabTarget", -- 掴み判定に関わる可能性のあるイベント
+    "GrabEvents.ReleaseGrab", -- 念のためリリースイベントもフック
+};
+
+-- 掴みイベントを強制的に遠距離で発火させるための参照
+local remoteGrab = ReplicatedStorage:WaitForChild("GrabEvents", 5) and ReplicatedStorage.GrabEvents:WaitForChild("GrabTarget", 5);
+local remoteRelease = ReplicatedStorage:WaitForChild("GrabEvents", 5) and ReplicatedStorage.GrabEvents:WaitForChild("ReleaseGrab", 5);
 
 local isFlying = false;
-local isLineExtending = false; -- ★ ライン拡張機能のフラグ
-local currentLinePart = nil;   -- ★ 現在のラインPart
+local isLineExtending = false;
+local currentLinePart = nil;
 local bodyVelocity = nil;
 local controlButton = nil;
 local speedTextBox = nil;
@@ -67,7 +76,7 @@ local function showNotification(message, color)
     end);
 end;
 
--- 掴み/防御RemoteEventの無効化（Hook）
+-- 強化された防御 RemoteEventの無効化（Hook）
 local function hookGrabEvents()
     for _, path in pairs(GRAB_EVENTS) do
         local parts = string.split(path, ".");
@@ -83,9 +92,9 @@ local function hookGrabEvents()
 
         if event and event:IsA("RemoteEvent") then
             local success, _ = pcall(function()
-                event.OnClientEvent:Connect(function()
-                    -- Lineの距離制限を制御するイベントを無効化
-                end);
+                -- サーバーからの受信を無効化するだけでなく、
+                -- サーバーへ送るイベントのクライアント側の関数もフックし、偽の距離情報を送ることを防ぐ
+                event.OnClientEvent:Connect(function() end);
             end)
             if success then
                 showNotification("🔒 防御イベント (" .. path .. ") をフックしました。", Color3.fromRGB(0, 255, 255));
@@ -98,17 +107,16 @@ local function hookGrabEvents()
     end
 end
 
--- Line距離制限解除機能のロジック (★ 新機能)
+-- Line距離制限解除機能のロジック
 local function startLineExtension()
     if isLineExtending then return end;
-    
+
     local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart");
     if not Root then showNotification("エラー: ラインの起点が見つかりません。", Color3.fromRGB(255, 0, 0)); return end;
-    
+
     isLineExtending = true;
     showNotification("Line拡張 ON (Fキーで停止)", Color3.fromRGB(150, 255, 150));
 
-    -- ラインPartの作成
     currentLinePart = Instance.new("Part");
     pcall(function()
         currentLinePart.Parent = WS;
@@ -117,24 +125,20 @@ local function startLineExtension()
         currentLinePart.BrickColor = BrickColor.new("Really red");
         currentLinePart.Material = Enum.Material.ForceField;
         currentLinePart.Transparency = 0.5;
+        currentLinePart.Name = "InfiniteGrabLine"
     end)
-    
-    -- ライン描画のループ
+
     RS:BindToRenderStep("LineExtension", Enum.RenderPriority.Camera.Value + 1, function()
         if not isLineExtending or not currentLinePart or not Root then return end;
-        
-        -- マウス/画面中央からのRaycast (事実上の無限距離)
-        local mouseRay = WS.CurrentCamera:ScreenPointToRay(UIS:GetMouseLocation().X, UIS:GetMouseLocation().Y);
-        local targetPos = mouseRay.Origin + mouseRay.Direction * 10000; -- 10000スタッド先を目標に
 
-        -- ラインの計算
+        -- マウス/画面中央からのRaycast (視覚的なライン描画)
+        local mouseRay = WS.CurrentCamera:ScreenPointToRay(UIS:GetMouseLocation().X, UIS:GetMouseLocation().Y);
+        local targetPos = mouseRay.Origin + mouseRay.Direction * 10000;
+
         local startPos = Root.Position;
-        local direction = (targetPos - startPos).unit;
         local distance = (targetPos - startPos).Magnitude;
 
-        -- Partのサイズと位置を設定
         pcall(function()
-            -- 長さと位置
             currentLinePart.Size = Vector3.new(0.2, 0.2, distance);
             currentLinePart.CFrame = CFrame.new(startPos, targetPos) * CFrame.new(0, 0, -distance / 2);
         end)
@@ -143,20 +147,42 @@ end
 
 local function stopLineExtension()
     if not isLineExtending then return end;
-    
+
     isLineExtending = false;
     RS:UnbindFromRenderStep("LineExtension");
-    
+
     if currentLinePart then
         pcall(currentLinePart.Destroy, currentLinePart);
         currentLinePart = nil;
     end
-    
+
     showNotification("Line拡張 OFF", Color3.fromRGB(255, 150, 150));
 end
 
 
--- 掴みオブジェクトの検知と破壊
+-- ★ 強制掴み実行ロジック
+UIS.InputBegan:Connect(function(input, gameProcessedEvent)
+    if gameProcessedEvent or not isLineExtending or not remoteGrab or not remoteRelease then return end
+
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        -- 左クリック: 遠距離で掴みイベントを強制実行
+        local mouseRay = WS.CurrentCamera:ScreenPointToRay(UIS:GetMouseLocation().X, UIS:GetMouseLocation().Y);
+        -- 非常に遠い座標を計算 (サーバーの距離チェックを無視するため、視線方向の最大距離)
+        local forcedTargetPos = mouseRay.Origin + mouseRay.Direction * 5000; 
+        
+        -- 掴みイベントをサーバーへ送信
+        pcall(remoteGrab.FireServer, remoteGrab, forcedTargetPos, forcedTargetPos);
+        showNotification("💥 遠距離掴み信号を強制送信！", Color3.fromRGB(255, 255, 0));
+
+    elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+        -- 右クリック: リリースイベントを強制実行
+        pcall(remoteRelease.FireServer, remoteRelease);
+        showNotification("🖐️ 掴みリリース信号を強制送信！", Color3.fromRGB(150, 150, 255));
+    end
+end)
+
+
+-- 掴みオブジェクトの検知と破壊 (変更なし)
 local function setupGrabDetection(rootPart)
     if grabDetectionConnection and grabDetectionConnection.Connected then grabDetectionConnection:Disconnect(); end
     grabDetectionConnection = rootPart.ChildAdded:Connect(function(child)
@@ -181,7 +207,7 @@ local function disableTargetScript()
     else showNotification("敵スクリプトは見つかりませんでした。", Color3.fromRGB(150, 150, 150)); end
 end
 
--- 飛行機能 (UIボタン操作) (変更なし)
+-- 飛行機能 (変更なし)
 local function stopFlying()
     if not isFlying then return end;
     isFlying = false; failureCount = 0;
@@ -239,7 +265,7 @@ local function updateFlyMovement()
 end;
 
 
--- ラグドール無効化処理 (常時実行) (変更なし)
+-- ラグドール無効化処理 (変更なし)
 local function updateAntiRagdoll()
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     if H and H.Parent then
@@ -286,7 +312,7 @@ local function createUI()
 end;
 
 
--- キー入力ハンドラー (★ Line機能用)
+-- Fキー入力ハンドラー (Line機能用)
 UIS.InputBegan:Connect(function(input, gameProcessedEvent)
     if gameProcessedEvent then return end
     if input.KeyCode == Enum.KeyCode.F then
@@ -301,7 +327,6 @@ end)
 
 -- 初期化関数
 local function initialize()
-    -- CharacterAddedの接続
     local function setupCharacter(character)
         local H = character:FindFirstChildOfClass("Humanoid");
         if H then pcall(function() H.WalkSpeed = WALK_SPEED end) end;
@@ -312,16 +337,13 @@ local function initialize()
     if P.Character then setupCharacter(P.Character) end;
     P.CharacterAdded:Connect(setupCharacter);
 
-    -- メインループ接続
     if not flyLoopBinding then flyLoopBinding = RS:BindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value, updateFlyMovement); end;
     if not antiragdollBinding then antiragdollBinding = RS:BindToRenderStep("AntiRagdoll", Enum.RenderPriority.Camera.Value - 1, updateAntiRagdoll); end;
 
-    -- 実行順序 (防御を先に、UIを最後に)
     hookGrabEvents();
     disableTargetScript();
     createUI();
     showNotification("SplashHub 起動成功！", Color3.fromRGB(0, 255, 0));
 end
 
--- コード全体を即時実行関数でラップ
 pcall(initialize)
