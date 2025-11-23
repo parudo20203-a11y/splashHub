@@ -18,7 +18,7 @@ local flyLoopBinding = nil;
 local isDragging = false;
 local dragOffset = nil;
 
--- 通知機能 (フレンド申請風)
+-- 通知機能 (エラー抑制のためのpcall強化)
 local function showNotification(message, color)
     local G = Instance.new("ScreenGui", P.PlayerGui);
     G.Name = "SplashHubNotify";
@@ -44,7 +44,8 @@ local function showNotification(message, color)
         wait(3);
         pcall(NF.TweenPosition, NF, UDim2.new(1, 0, 1, -50), "In", "Quart", 0.3, true);
         wait(0.3);
-        if G and G.Parent then G:Destroy() end;
+        -- Guiオブジェクトが存在することを最後に確認
+        if G and G.Parent then pcall(G.Destroy, G) end;
     end);
 end;
 
@@ -61,17 +62,20 @@ local function updateSpeed()
     end
 end;
 
--- 飛行停止
+-- 飛行停止 (安全なクリーンアップ)
 local function stopFlying()
     if not isFlying then return end;
     isFlying = false;
     
+    -- Anticheat Bindingの解除
     if anticheatBinding then pcall(RS.UnbindFromRenderStep, RS, "AntiAC"); anticheatBinding = nil end;
     
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
+    -- Humanoidへのアクセスを保護
     if H then pcall(function() H.PlatformStand = false; H.WalkSpeed = WALK_SPEED end) end;
     
-    if bodyVelocity then pcall(bodyVelocity.Destroy, bodyVelocity); bodyVelocity = nil end;
+    -- BodyVelocityの破壊を保護
+    if bodyVelocity and bodyVelocity.Parent then pcall(bodyVelocity.Destroy, bodyVelocity); bodyVelocity = nil end;
     
     if controlButton then pcall(function() controlButton.Text = "SplashHub: 飛行切り替え" end) end;
     showNotification("SplashHub: 飛行 OFF", Color3.fromRGB(255, 100, 100));
@@ -91,24 +95,25 @@ local function startFlying()
     bodyVelocity = Root:FindFirstChildOfClass("BodyVelocity") or Instance.new("BodyVelocity");
     bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 9e9;
     bodyVelocity.P = 1000;
-    bodyVelocity.Parent = Root;
+    pcall(function() bodyVelocity.Parent = Root end)
     
-    -- アンチチート & ラグドール無効化ループ (最優先で実行)
-    anticheatBinding = RS:BindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value, function() -- 優先度をCameraに設定
-        -- 必須オブジェクトチェック
-        if not P.Character or not Root.Parent or not H.Parent then 
+    -- アンチチート & ラグドール無効化ループ (最優先、安定性強化)
+    anticheatBinding = RS:BindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value, function()
+        -- ★ 最重要: オブジェクト生存チェック
+        if not P.Character or not Root or not Root.Parent or not H or not H.Parent then 
             stopFlying(); 
             return 
         end;
         
-        -- ★ FTAP対策: WalkSpeedが強制的に変更されたら即座に自己解除
+        -- ★ FTAP/WalkSpeed検出対策
         if H.WalkSpeed ~= 0 then
-            showNotification("FTAP検出？: 速度がリセットされました。飛行を解除します。", Color3.fromRGB(255, 150, 0));
+            -- WalkSpeedが強制的に変更されたら即座に自己解除
+            showNotification("検出？: 速度がリセットされました。飛行を解除します。", Color3.fromRGB(255, 150, 0));
             stopFlying();
             return
         end
         
-        -- ラグドール無効化とBodyVelocityの再挿入
+        -- ラグドール無効化とBodyVelocityの再挿入 (全てpcallで保護)
         pcall(function()
             H.PlatformStand = false; 
             if not bodyVelocity.Parent then bodyVelocity.Parent = Root end;
@@ -121,11 +126,18 @@ end;
 
 -- 飛行移動処理 (カメラ方向)
 local function updateFlyMovement()
-    if not isFlying or not bodyVelocity or not P.Character or not P.Character:FindFirstChildOfClass("Humanoid") then 
+    -- ★ 安定性強化: 必要なオブジェクトがない場合は停止
+    if not isFlying or not P.Character or not P.Character:FindFirstChildOfClass("Humanoid") then 
         stopFlying();
         return 
     end;
     
+    -- BodyVelocityが存在しない場合は、即座に停止してエラーを回避
+    if not bodyVelocity or not bodyVelocity.Parent then
+        stopFlying();
+        return
+    end
+
     local C = WS.CurrentCamera;
     if not C then return end;
     local CF_ = C.CFrame;
@@ -141,13 +153,14 @@ local function updateFlyMovement()
     if UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) then mV = mV - Vector3.new(0, 1, 0) end;
     
     if mV.Magnitude > 0 then
+        -- Velocityへのアクセスを保護
         pcall(function() bodyVelocity.Velocity = mV.unit * FLY_SPEED end);
     else
         pcall(function() bodyVelocity.Velocity = Vector3.new(0, 0, 0) end);
     end;
 end;
 
--- ドラッグ機能 (変更なし)
+-- ドラッグ機能
 local function startDrag(input)
     isDragging = true;
     dragOffset = input.Position - Vector2.new(MainFrame.AbsolutePosition.X, MainFrame.AbsolutePosition.Y);
@@ -193,7 +206,7 @@ local function createUI()
     controlButton.Position = UDim2.new(0, 0, 0, 0);
     controlButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255);
     controlButton.TextColor3 = Color3.new(1, 1, 1);
-    controlButton.Text = "飛行切り替え";
+    controlButton.Text = "SplashHub: 飛行切り替え";
     controlButton.Font = Enum.Font.SourceSansBold;
     controlButton.TextSize = 18;
     controlButton.ZIndex = 2; 
@@ -246,7 +259,7 @@ end;
 if P.Character then setupCharacter(P.Character) end;
 P.CharacterAdded:Connect(setupCharacter);
 
--- メインループ接続 (最優先で実行)
+-- メインループ接続
 if not flyLoopBinding then
     flyLoopBinding = RS:BindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value, updateFlyMovement);
 end;
