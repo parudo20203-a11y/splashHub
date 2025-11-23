@@ -196,4 +196,4 @@ disableTargetScript();
 local MainFrame = nil;
 local controlButton = nil;
 local speedTextBox = nil;
-createUI();
+-- createUI();
