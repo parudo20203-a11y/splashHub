@@ -1,199 +1,190 @@
--- サービスの取得
-local P = game:GetService("Players").LocalPlayer
-local UIS = game:GetService("UserInputService")
-local RS = game:GetService("RunService")
-local WS = game:GetService("Workspace")
+local P = game:GetService("Players").LocalPlayer;
+local UIS = game:GetService("UserInputService");
+local RS = game:GetService("RunService");
+local WS = game:GetService("Workspace");
 
-if not P then return end
+if not P then return end;
 
--- 設定値
-local WALK_SPEED = 32
-local FLY_SPEED = 40
+local WALK_SPEED = 32;
+local FLY_SPEED = 40;
 
--- 飛行制御変数とUI要素
-local isFlying = false
-local bodyVelocity = nil
-local controlButton = nil
-local controlFrame = nil
-local anticheatLoop = nil
+local isFlying = false;
+local bodyVelocity = nil;
+local controlButton = nil;
+local MainFrame = nil; -- UIを動かすための親フレーム
+local anticheatBinding = nil;
+local flyLoopBinding = nil;
+local isDragging = false;
+local dragOffset = nil;
 
--- ----------------------------------------------------
--- UIドラッグ機能
--- ----------------------------------------------------
-local dragging = false
-local dragStartPos = nil
-
-local function startDrag(input)
-    dragging = true
-    dragStartPos = input.Position - Vector2.new(controlFrame.AbsolutePosition.X, controlFrame.AbsolutePosition.Y)
-    UIS.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            controlFrame.Position = UDim2.new(0, input.Position.X - dragStartPos.X, 0, input.Position.Y - dragStartPos.Y)
-        end
-    end)
-end
-
-local function stopDrag()
-    dragging = false
-    dragStartPos = nil
-end
-
--- ----------------------------------------------------
--- UIの作成とセットアップ
--- ----------------------------------------------------
-local function createUI()
-    local existingGui = P.PlayerGui:FindFirstChild("SplashHubControlGui")
-    if existingGui then existingGui:Destroy() end
-
-    local Gui = Instance.new("ScreenGui")
-    Gui.Name = "SplashHubControlGui"
-    Gui.Parent = P.PlayerGui
+-- 通知機能 (フレンド申請風)
+local function showNotification(message, color)
+    local G = Instance.new("ScreenGui", P.PlayerGui);
+    G.Name = "SplashHubNotify";
+    local NF = Instance.new("Frame", G);
+    NF.Size = UDim2.new(0, 300, 0, 50);
+    NF.Position = UDim2.new(1, 0, 1, -50);
+    NF.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2);
+    NF.BackgroundTransparency = 0.1;
+    NF.BorderColor3 = Color3.new(0, 0, 0);
+    NF.BorderSizePixel = 0;
+    local T = Instance.new("TextLabel", NF);
+    T.Size = UDim2.new(1, 0, 1, 0);
+    T.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2);
+    T.BackgroundTransparency = 0.8;
+    T.Text = message;
+    T.TextColor3 = color or Color3.fromRGB(255, 255, 255);
+    T.Font = Enum.Font.SourceSansBold;
+    T.TextSize = 18;
     
-    -- メインフレーム (ドラッグ対象)
-    controlFrame = Instance.new("Frame")
-    controlFrame.Size = UDim2.new(0, 150, 0, 60) -- ボタンとドラッグバーを保持するサイズ
-    controlFrame.Position = UDim2.new(0, 10, 0, 10)
-    controlFrame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
-    controlFrame.Parent = Gui
-
-    -- ドラッグ用トップバー
-    local dragBar = Instance.new("TextLabel")
-    dragBar.Size = UDim2.new(1, 0, 0, 20)
-    dragBar.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
-    dragBar.TextColor3 = Color3.new(1, 1, 1)
-    dragBar.Text = "SplashHub Control"
-    dragBar.Font = Enum.Font.SourceSans
-    dragBar.TextSize = 14
-    dragBar.Parent = controlFrame
+    -- スライドイン
+    NF:TweenPosition(UDim2.new(1, -310, 1, -50), "Out", "Quart", 0.3, true);
     
-    -- ドラッグイベントの接続
-    dragBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            startDrag(input)
-        end
-    end)
-    UIS.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            stopDrag()
-        end
-    end)
+    spawn(function()
+        wait(3);
+        -- スライドアウト
+        NF:TweenPosition(UDim2.new(1, 0, 1, -50), "In", "Quart", 0.3, true);
+        wait(0.3);
+        if G and G.Parent then G:Destroy() end;
+    end);
+end;
 
-    -- トグルボタン
-    controlButton = Instance.new("TextButton")
-    controlButton.Name = "FlyToggle"
-    controlButton.Size = UDim2.new(1, 0, 0, 40)
-    controlButton.Position = UDim2.new(0, 0, 0, 20) -- ドラッグバーの下
-    controlButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    controlButton.TextColor3 = Color3.new(1, 1, 1)
-    controlButton.Text = "SplashHub: 飛行 OFF"
-    controlButton.Font = Enum.Font.SourceSansBold
-    controlButton.TextSize = 18
-    controlButton.Parent = controlFrame
-
-    -- ボタンクリックイベントの接続
-    controlButton.MouseButton1Click:Connect(function()
-        if isFlying then
-            stopFlying()
-        else
-            startFlying()
-        end
-    end)
-end
-
--- ----------------------------------------------------
--- 飛行制御のコアロジック
--- ----------------------------------------------------
-
-local function updateButtonState()
-    if controlButton then
-        controlButton.Text = isFlying and "SplashHub: 飛行 ON" or "SplashHub: 飛行 OFF"
-        controlButton.BackgroundColor3 = isFlying and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(50, 50, 50)
-    end
-end
-
+-- 飛行停止
 local function stopFlying()
-    if not isFlying then return end
-    
-    isFlying = false
-    if anticheatLoop then RS:UnbindFromRenderStep("AntiAC") anticheatLoop = nil end 
+    if not isFlying then return end;
+    isFlying = false;
+    if anticheatBinding then RS:UnbindFromRenderStep("AntiAC"); anticheatBinding = nil end;
+    local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
+    if H then H.PlatformStand = false; H.WalkSpeed = WALK_SPEED end;
+    if bodyVelocity then bodyVelocity:Destroy(); bodyVelocity = nil end;
+    if controlButton then controlButton.Text = "SplashHub: 飛行切り替え" end;
+    showNotification("SplashHub: 飛行 OFF", Color3.fromRGB(255, 100, 100));
+end;
 
-    local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid")
-    if H then 
-        H.PlatformStand = false 
-        H.WalkSpeed = WALK_SPEED
-    end
-    
-    if bodyVelocity then bodyVelocity:Destroy() bodyVelocity = nil end
-    updateButtonState()
-end
-
+-- 飛行開始
 local function startFlying()
-    if isFlying then return end
+    if isFlying then return end;
+    local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
+    local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart");
+    if not H or not Root then showNotification("エラー: キャラクターが見つかりません。", Color3.fromRGB(255, 0, 0)); return end;
+    isFlying = true;
+    H.WalkSpeed = 0;
+    bodyVelocity = Root:FindFirstChildOfClass("BodyVelocity") or Instance.new("BodyVelocity");
+    bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 9e9;
+    bodyVelocity.P = 1000;
+    bodyVelocity.Parent = Root;
     
-    local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid")
-    local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart")
+    -- アンチチート & ラグドール無効化
+    anticheatBinding = RS:BindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value + 1, function()
+        if not Root.Parent or not H.Parent then stopFlying(); return end;
+        H.PlatformStand = false; -- ラグドール無効化
+        if not bodyVelocity.Parent then bodyVelocity.Parent = Root end;
+    end);
     
-    if not H or not Root then 
-        updateButtonState() -- OFFのままにしておく
-        return 
-    end
+    if controlButton then controlButton.Text = "SplashHub: 飛行切り替え" end;
+    showNotification("SplashHub: 飛行 ON", Color3.fromRGB(100, 255, 100));
+end;
 
-    isFlying = true
-    H.WalkSpeed = 0 
-    
-    bodyVelocity = Root:FindFirstChildOfClass("BodyVelocity") or Instance.new("BodyVelocity")
-    bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 9e9
-    bodyVelocity.P = 1000
-    bodyVelocity.Parent = Root
-    
-    -- アンチチート対策ループ: PlatformStandとBodyVelocityを強制維持
-    anticheatLoop = RS:BindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value + 1, function()
-        if not Root.Parent or not H.Parent then stopFlying() return end 
-        H.PlatformStand = true
-        if not bodyVelocity.Parent then bodyVelocity.Parent = Root end
-    end)
-    
-    updateButtonState()
-end
-
-
--- 飛行中の移動を処理する関数 (変更なし)
+-- 飛行移動処理 (カメラ方向)
 local function updateFlyMovement()
-    if not isFlying or not bodyVelocity or not P.Character then return end
-
-    local camera = WS.CurrentCamera
-    if not camera then return end
-    local cameraCFrame = camera.CFrame
-    local moveVector = Vector3.new(0, 0, 0)
+    if not isFlying or not bodyVelocity or not P.Character then return end;
+    local C = WS.CurrentCamera;
+    if not C then return end;
+    local CF_ = C.CFrame;
+    local mV = Vector3.new(0, 0, 0);
     
-    if UIS:IsKeyDown(Enum.KeyCode.W) then moveVector = moveVector + cameraCFrame.LookVector * Vector3.new(1, 0, 1).unit end
-    if UIS:IsKeyDown(Enum.KeyCode.S) then moveVector = moveVector - cameraCFrame.LookVector * Vector3.new(1, 0, 1).unit end
-    if UIS:IsKeyDown(Enum.KeyCode.A) then moveVector = moveVector - cameraCFrame.RightVector end
-    if UIS:IsKeyDown(Enum.KeyCode.D) then moveVector = moveVector + cameraCFrame.RightVector end
+    -- カメラ方向への移動 (W/S)
+    if UIS:IsKeyDown(Enum.KeyCode.W) then mV = mV + CF_.LookVector end;
+    if UIS:IsKeyDown(Enum.KeyCode.S) then mV = mV - CF_.LookVector end;
     
-    if UIS:IsKeyDown(Enum.KeyCode.Space) then moveVector = moveVector + Vector3.new(0, 1, 0) end
-    if UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) then moveVector = moveVector - Vector3.new(0, 1, 0) end
-
-    if moveVector.Magnitude > 0 then
-        bodyVelocity.Velocity = moveVector.unit * FLY_SPEED
+    -- カメラ視点基準の左右移動 (A/D)
+    if UIS:IsKeyDown(Enum.KeyCode.A) then mV = mV - CF_.RightVector end;
+    if UIS:IsKeyDown(Enum.KeyCode.D) then mV = mV + CF_.RightVector end;
+    
+    -- 絶対的な上下移動 (Space/Shift)
+    if UIS:IsKeyDown(Enum.KeyCode.Space) then mV = mV + Vector3.new(0, 1, 0) end;
+    if UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) then mV = mV - Vector3.new(0, 1, 0) end;
+    
+    if mV.Magnitude > 0 then
+        bodyVelocity.Velocity = mV.unit * FLY_SPEED;
     else
-        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    end
-end
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0);
+    end;
+end;
 
--- ----------------------------------------------------
--- 初期化とイベント接続
--- ----------------------------------------------------
+-- ドラッグ開始
+local function startDrag(input)
+    isDragging = true;
+    dragOffset = input.Position - Vector2.new(MainFrame.AbsolutePosition.X, MainFrame.AbsolutePosition.Y);
+    UIS.MouseIconEnabled = false;
+end;
 
+-- ドラッグ更新
+local function updateDrag(input)
+    if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        MainFrame.Position = UDim2.new(0, input.Position.X - dragOffset.X, 0, input.Position.Y - dragOffset.Y);
+    end;
+end;
+
+-- ドラッグ終了
+local function endDrag(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        isDragging = false;
+        dragOffset = nil;
+        UIS.MouseIconEnabled = true;
+    end;
+end;
+
+-- UIの作成
+local function createUI()
+    local existingGui = P.PlayerGui:FindFirstChild("SplashHubControlGui");
+    if existingGui then existingGui:Destroy() end;
+
+    local G = Instance.new("ScreenGui");
+    G.Name = "SplashHubControlGui";
+    G.Parent = P.PlayerGui;
+    
+    -- ★ 新しいドラッグ可能なメインフレーム (白い半透明、ボタンの3倍の長さ)
+    MainFrame = Instance.new("Frame");
+    MainFrame.Name = "MainFrame";
+    MainFrame.Size = UDim2.new(0, 450, 0, 40); -- 150*3 = 450
+    MainFrame.Position = UDim2.new(0, 10, 0, 10);
+    MainFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255); -- 白
+    MainFrame.BackgroundTransparency = 0.5; -- 半透明
+    MainFrame.Parent = G;
+    
+    -- 飛行切り替えボタン
+    controlButton = Instance.new("TextButton");
+    controlButton.Name = "FlyToggle";
+    controlButton.Size = UDim2.new(0, 150, 1, 0);
+    controlButton.Position = UDim2.new(0, 0, 0, 0); -- MainFrameの左端に配置
+    controlButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255);
+    controlButton.TextColor3 = Color3.new(1, 1, 1);
+    controlButton.Text = "SplashHub: 飛行切り替え";
+    controlButton.Font = Enum.Font.SourceSansBold;
+    controlButton.TextSize = 18;
+    controlButton.Parent = MainFrame;
+
+    -- イベント接続
+    controlButton.MouseButton1Click:Connect(function() if isFlying then stopFlying() else startFlying() end end);
+    MainFrame.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then startDrag(i) end end);
+    UIS.InputChanged:Connect(updateDrag);
+    UIS.InputEnded:Connect(endDrag);
+end;
+
+-- キャラクター初期設定
 local function setupCharacter(character)
-    local H = character:FindFirstChildOfClass("Humanoid")
-    if H then H.WalkSpeed = WALK_SPEED end
-    if isFlying then stopFlying() end
-end
+    local H = character:FindFirstChildOfClass("Humanoid");
+    if H then H.WalkSpeed = WALK_SPEED end;
+    if isFlying then stopFlying() end;
+end;
 
-if P.Character then setupCharacter(P.Character) end
-P.CharacterAdded:Connect(setupCharacter)
+if P.Character then setupCharacter(P.Character) end;
+P.CharacterAdded:Connect(setupCharacter);
 
-RS:BindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value + 1, updateFlyMovement)
+-- メインループ接続
+if not flyLoopBinding then
+    flyLoopBinding = RS:BindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value + 1, updateFlyMovement);
+end;
 
-createUI()
+createUI();
