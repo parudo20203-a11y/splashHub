@@ -38,11 +38,12 @@ local function showNotification(message, color)
     T.Font = Enum.Font.SourceSansBold;
     T.TextSize = 18;
     
-    NF:TweenPosition(UDim2.new(1, -310, 1, -50), "Out", "Quart", 0.3, true);
+    -- pcallでTweenPositionを保護
+    pcall(NF.TweenPosition, NF, UDim2.new(1, -310, 1, -50), "Out", "Quart", 0.3, true);
     
     spawn(function()
         wait(3);
-        NF:TweenPosition(UDim2.new(1, 0, 1, -50), "In", "Quart", 0.3, true);
+        pcall(NF.TweenPosition, NF, UDim2.new(1, 0, 1, -50), "In", "Quart", 0.3, true);
         wait(0.3);
         if G and G.Parent then G:Destroy() end;
     end);
@@ -52,12 +53,12 @@ end;
 local function updateSpeed()
     if not speedTextBox then return end
     local success, num = pcall(tonumber, speedTextBox.Text);
-    if success and num and num > 0 and num < 500 then -- 0～500の範囲で制限
+    if success and num and num > 0 and num < 500 then 
         FLY_SPEED = num;
         showNotification("飛行速度を " .. num .. " に設定しました。", Color3.fromRGB(150, 255, 255));
     else
         showNotification("無効な速度値です。", Color3.fromRGB(255, 50, 50));
-        speedTextBox.Text = tostring(FLY_SPEED); -- 元に戻す
+        speedTextBox.Text = tostring(FLY_SPEED); 
     end
 end;
 
@@ -65,11 +66,15 @@ end;
 local function stopFlying()
     if not isFlying then return end;
     isFlying = false;
-    if anticheatBinding then RS:UnbindFromRenderStep("AntiAC"); anticheatBinding = nil end;
+    
+    if anticheatBinding then pcall(RS.UnbindFromRenderStep, RS, "AntiAC"); anticheatBinding = nil end;
+    
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
-    if H then H.PlatformStand = false; H.WalkSpeed = WALK_SPEED end;
-    if bodyVelocity then bodyVelocity:Destroy(); bodyVelocity = nil end;
-    if controlButton then controlButton.Text = "飛行切り替え" end;
+    if H then pcall(function() H.PlatformStand = false; H.WalkSpeed = WALK_SPEED end) end;
+    
+    if bodyVelocity then pcall(bodyVelocity.Destroy, bodyVelocity); bodyVelocity = nil end;
+    
+    if controlButton then pcall(function() controlButton.Text = "飛行切り替え" end) end;
     showNotification("SplashHub: 飛行 OFF", Color3.fromRGB(255, 100, 100));
 end;
 
@@ -78,33 +83,50 @@ local function startFlying()
     if isFlying then return end;
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart");
+    
     if not H or not Root then showNotification("エラー: キャラクターが見つかりません。", Color3.fromRGB(255, 0, 0)); return end;
+    
     isFlying = true;
     H.WalkSpeed = 0;
+    
     bodyVelocity = Root:FindFirstChildOfClass("BodyVelocity") or Instance.new("BodyVelocity");
     bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 9e9;
     bodyVelocity.P = 1000;
     bodyVelocity.Parent = Root;
     
-    -- アンチチート & ラグドール無効化
+    -- アンチチート & ラグドール無効化ループ (安定性強化)
     anticheatBinding = RS:BindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value + 1, function()
-        if not Root.Parent or not H.Parent then stopFlying(); return end;
-        H.PlatformStand = false; -- ラグドール無効化
-        if not bodyVelocity.Parent then bodyVelocity.Parent = Root end;
+        -- ★ 最重要: キャラクター自体が存在しない場合は即時停止
+        if not P.Character or not Root.Parent or not H.Parent then 
+            stopFlying(); 
+            return 
+        end;
+        
+        -- エラー回避のためのpcall
+        pcall(function()
+            H.PlatformStand = false; 
+            if not bodyVelocity.Parent then bodyVelocity.Parent = Root end;
+        end);
     end);
     
-    if controlButton then controlButton.Text = "SplashHub: 飛行切り替え" end;
+    if controlButton then pcall(function() controlButton.Text = "SplashHub: 飛行切り替え" end) end;
     showNotification("SplashHub: 飛行 ON", Color3.fromRGB(100, 255, 100));
 end;
 
 -- 飛行移動処理 (カメラ方向)
 local function updateFlyMovement()
-    if not isFlying or not bodyVelocity or not P.Character then return end;
+    -- ★ 安定性強化: 必要なオブジェクトがない場合は停止
+    if not isFlying or not bodyVelocity or not P.Character or not P.Character:FindFirstChildOfClass("Humanoid") then 
+        stopFlying();
+        return 
+    end;
+    
     local C = WS.CurrentCamera;
     if not C then return end;
     local CF_ = C.CFrame;
     local mV = Vector3.new(0, 0, 0);
     
+    -- 移動計算ロジック
     if UIS:IsKeyDown(Enum.KeyCode.W) then mV = mV + CF_.LookVector end;
     if UIS:IsKeyDown(Enum.KeyCode.S) then mV = mV - CF_.LookVector end;
     
@@ -114,28 +136,27 @@ local function updateFlyMovement()
     if UIS:IsKeyDown(Enum.KeyCode.Space) then mV = mV + Vector3.new(0, 1, 0) end;
     if UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) then mV = mV - Vector3.new(0, 1, 0) end;
     
+    -- 速度適用
     if mV.Magnitude > 0 then
-        bodyVelocity.Velocity = mV.unit * FLY_SPEED;
+        pcall(function() bodyVelocity.Velocity = mV.unit * FLY_SPEED end);
     else
-        bodyVelocity.Velocity = Vector3.new(0, 0, 0);
+        pcall(function() bodyVelocity.Velocity = Vector3.new(0, 0, 0) end);
     end;
 end;
 
--- ドラッグ開始
+-- ドラッグ機能 (変更なし)
 local function startDrag(input)
     isDragging = true;
     dragOffset = input.Position - Vector2.new(MainFrame.AbsolutePosition.X, MainFrame.AbsolutePosition.Y);
     UIS.MouseIconEnabled = false;
 end;
 
--- ドラッグ更新
 local function updateDrag(input)
     if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
         MainFrame.Position = UDim2.new(0, input.Position.X - dragOffset.X, 0, input.Position.Y - dragOffset.Y);
     end;
 end;
 
--- ドラッグ終了
 local function endDrag(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         isDragging = false;
@@ -162,7 +183,7 @@ local function createUI()
     MainFrame.BackgroundTransparency = 0.5;
     MainFrame.Parent = G;
     
-    -- 飛行切り替えボタン (左端)
+    -- 飛行切り替えボタン
     controlButton = Instance.new("TextButton");
     controlButton.Name = "FlyToggle";
     controlButton.Size = UDim2.new(0, 150, 1, 0);
@@ -172,10 +193,10 @@ local function createUI()
     controlButton.Text = "SplashHub: 飛行切り替え";
     controlButton.Font = Enum.Font.SourceSansBold;
     controlButton.TextSize = 18;
-    controlButton.ZIndex = 2; -- ★ ZIndexを設定
+    controlButton.ZIndex = 2; 
     controlButton.Parent = MainFrame;
 
-    -- 速度調整ラベル (中央)
+    -- 速度調整ラベル
     local speedLabel = Instance.new("TextLabel");
     speedLabel.Name = "SpeedLabel";
     speedLabel.Size = UDim2.new(0, 80, 1, 0);
@@ -185,10 +206,10 @@ local function createUI()
     speedLabel.Text = "速度調整:";
     speedLabel.Font = Enum.Font.SourceSansBold;
     speedLabel.TextSize = 18;
-    speedLabel.ZIndex = 2; -- ★ ZIndexを設定
+    speedLabel.ZIndex = 2; 
     speedLabel.Parent = MainFrame;
     
-    -- 速度入力テキストボックス (右)
+    -- 速度入力テキストボックス
     speedTextBox = Instance.new("TextBox");
     speedTextBox.Name = "SpeedInput";
     speedTextBox.Size = UDim2.new(0, 70, 0.8, 0);
@@ -199,18 +220,14 @@ local function createUI()
     speedTextBox.Text = tostring(FLY_SPEED);
     speedTextBox.Font = Enum.Font.SourceSansBold;
     speedTextBox.TextSize = 18;
-    speedTextBox.ZIndex = 3; -- ★ 最前面に表示されるようにZIndexを高く設定
+    speedTextBox.ZIndex = 3; 
     speedTextBox.Parent = MainFrame;
     
-    -- イベント接続: ボタン
+    -- イベント接続
     controlButton.MouseButton1Click:Connect(function() if isFlying then stopFlying() else startFlying() end end);
-    
-    -- イベント接続: 速度入力
     speedTextBox.FocusLost:Connect(function(enterPressed)
         if enterPressed or not enterPressed then updateSpeed() end
     end);
-    
-    -- イベント接続: ドラッグ
     MainFrame.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then startDrag(i) end end);
     UIS.InputChanged:Connect(updateDrag);
     UIS.InputEnded:Connect(endDrag);
@@ -219,7 +236,7 @@ end;
 -- キャラクター初期設定
 local function setupCharacter(character)
     local H = character:FindFirstChildOfClass("Humanoid");
-    if H then H.WalkSpeed = WALK_SPEED end;
+    if H then pcall(function() H.WalkSpeed = WALK_SPEED end) end;
     if isFlying then stopFlying() end;
 end;
 
