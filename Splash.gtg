@@ -69,7 +69,7 @@ local function stopFlying()
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     if H then H.PlatformStand = false; H.WalkSpeed = WALK_SPEED end;
     if bodyVelocity then bodyVelocity:Destroy(); bodyVelocity = nil end;
-    if controlButton then controlButton.Text = "SplashHub: 飛行切り替え" end;
+    if controlButton then controlButton.Text = "飛行切り替え" end;
     showNotification("SplashHub: 飛行 OFF", Color3.fromRGB(255, 100, 100));
 end;
 
