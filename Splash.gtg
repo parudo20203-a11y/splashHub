@@ -7,7 +7,7 @@ if not P then return end;
 
 local WALK_SPEED = 32;
 local FLY_SPEED = 40; 
-local MAX_FAILURES = 5; -- WalkSpeedリセットの最大失敗回数 (緩和)
+local MAX_FAILURES = 5; 
 
 local isFlying = false;
 local bodyVelocity = nil;
@@ -16,9 +16,10 @@ local speedTextBox = nil;
 local MainFrame = nil;
 local anticheatBinding = nil;
 local flyLoopBinding = nil;
+local antiragdollBinding = nil; -- ★ 新規追加: ラグドール防止用バインディング
 local isDragging = false;
 local dragOffset = nil;
-local failureCount = 0; -- 失敗カウンター
+local failureCount = 0; 
 
 -- 通知機能 (エラー抑制のためのpcall強化)
 local function showNotification(message, color)
@@ -72,8 +73,10 @@ local function stopFlying()
     if anticheatBinding then pcall(RS.UnbindFromRenderStep, RS, "AntiAC"); anticheatBinding = nil end;
     
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
-    if H and H.Parent then pcall(function() H.PlatformStand = false; H.WalkSpeed = WALK_SPEED end) end;
+    -- Humanoidへのアクセスを保護
+    if H and H.Parent then pcall(function() H.WalkSpeed = WALK_SPEED end) end; -- PlatformStandは常時ループで管理
     
+    -- BodyVelocityの破壊を保護
     if bodyVelocity and bodyVelocity.Parent then pcall(bodyVelocity.Destroy, bodyVelocity); bodyVelocity = nil end;
     
     if controlButton then pcall(function() controlButton.Text = "SplashHub: 飛行切り替え" end) end;
@@ -84,7 +87,6 @@ end;
 local function startFlying()
     if isFlying then return end;
     
-    -- 参照を確実に取得
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart");
     
@@ -98,7 +100,7 @@ local function startFlying()
     bodyVelocity.P = 1000;
     pcall(function() bodyVelocity.Parent = Root end)
     
-    -- アンチチート & ラグドール無効化ループ (最優先、安定性強化)
+    -- アンチチート & 速度リセット対策ループ (最優先、安定性強化)
     anticheatBinding = RS:BindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value, function()
         -- ★ 最重要: オブジェクト生存チェック
         if not P.Character or not Root or not Root.Parent or not H or not H.Parent then 
@@ -110,7 +112,6 @@ local function startFlying()
         if H.WalkSpeed ~= 0 then
             pcall(function() H.WalkSpeed = 0 end) -- 異常値を即座に0で上書き
             
-            -- WalkSpeedが0でないことを確認（上書きが効かなかった場合）
             if H.WalkSpeed ~= 0 then
                 failureCount = failureCount + 1;
                 
@@ -121,14 +122,13 @@ local function startFlying()
                 end
             end
         else
-            failureCount = 0; -- 0であれば成功なのでリセット
+            failureCount = 0; 
         end
         
-        -- ラグドール無効化とBodyVelocityの再挿入 (全てpcallで保護)
-        pcall(function()
-            H.PlatformStand = false; 
-            if not bodyVelocity.Parent then bodyVelocity.Parent = Root end;
-        end);
+        -- BodyVelocityの再挿入 (BodyVelocityが存在することを前提とする)
+        if bodyVelocity and not bodyVelocity.Parent then
+            pcall(function() bodyVelocity.Parent = Root end);
+        end;
     end);
     
     if controlButton then pcall(function() controlButton.Text = "SplashHub: 飛行切り替え" end) end;
@@ -169,6 +169,14 @@ local function updateFlyMovement()
     end;
 end;
 
+-- ★ 新規追加: ラグドール無効化処理 (常時実行)
+local function updateAntiRagdoll()
+    local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
+    if H and H.Parent then 
+        pcall(function() H.PlatformStand = false end);
+    end;
+end;
+
 -- ドラッグ機能
 local function startDrag(input)
     isDragging = true;
@@ -190,7 +198,7 @@ local function endDrag(input)
     end;
 end;
 
--- UIの作成
+-- UIの作成 (省略)
 local function createUI()
     local existingGui = P.PlayerGui:FindFirstChild("SplashHubControlGui");
     if existingGui then existingGui:Destroy() end;
@@ -199,7 +207,6 @@ local function createUI()
     G.Name = "SplashHubControlGui";
     G.Parent = P.PlayerGui;
     
-    -- メインフレーム (白い半透明、ドラッグ可能)
     MainFrame = Instance.new("Frame");
     MainFrame.Name = "MainFrame";
     MainFrame.Size = UDim2.new(0, 450, 0, 40);
@@ -208,7 +215,6 @@ local function createUI()
     MainFrame.BackgroundTransparency = 0.5;
     MainFrame.Parent = G;
     
-    -- 飛行切り替えボタン
     controlButton = Instance.new("TextButton");
     controlButton.Name = "FlyToggle";
     controlButton.Size = UDim2.new(0, 150, 1, 0);
@@ -221,7 +227,6 @@ local function createUI()
     controlButton.ZIndex = 2; 
     controlButton.Parent = MainFrame;
 
-    -- 速度調整ラベル
     local speedLabel = Instance.new("TextLabel");
     speedLabel.Name = "SpeedLabel";
     speedLabel.Size = UDim2.new(0, 80, 1, 0);
@@ -234,7 +239,6 @@ local function createUI()
     speedLabel.ZIndex = 2; 
     speedLabel.Parent = MainFrame;
     
-    -- 速度入力テキストボックス
     speedTextBox = Instance.new("TextBox");
     speedTextBox.Name = "SpeedInput";
     speedTextBox.Size = UDim2.new(0, 70, 0.8, 0);
@@ -248,7 +252,6 @@ local function createUI()
     speedTextBox.ZIndex = 3; 
     speedTextBox.Parent = MainFrame;
     
-    -- イベント接続
     controlButton.MouseButton1Click:Connect(function() if isFlying then stopFlying() else startFlying() end end);
     speedTextBox.FocusLost:Connect(function(enterPressed)
         if enterPressed or not enterPressed then updateSpeed() end
@@ -271,6 +274,11 @@ P.CharacterAdded:Connect(setupCharacter);
 -- メインループ接続
 if not flyLoopBinding then
     flyLoopBinding = RS:BindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value, updateFlyMovement);
+end;
+
+-- ★ 新規追加: 常時ラグドール無効化ループの接続
+if not antiragdollBinding then
+    antiragdollBinding = RS:BindToRenderStep("AntiRagdoll", Enum.RenderPriority.Camera.Value - 1, updateAntiRagdoll);
 end;
 
 createUI();
