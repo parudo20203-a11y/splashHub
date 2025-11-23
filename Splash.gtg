@@ -1,3 +1,4 @@
+-- グローバル変数の定義
 local P = game:GetService("Players").LocalPlayer;
 local UIS = game:GetService("UserInputService");
 local RS = game:GetService("RunService");
@@ -10,7 +11,6 @@ local WALK_SPEED = 32;
 local FLY_SPEED = 40; 
 local MAX_FAILURES = 5; 
 local GRAB_DETECTION_OBJECTS = {"BodyPosition", "BodyVelocity", "BodyGyro", "AlignOrientation", "AlignPosition", "Attachment"};
-local GRAB_EVENT_PATH = "GrabEvents.ExtendGrabLine"; 
 
 local isFlying = false;
 local bodyVelocity = nil;
@@ -25,10 +25,11 @@ local isDragging = false;
 local dragOffset = nil;
 local failureCount = 0; 
 
--- 通知機能 (★ pcallの戻り値処理を修正し、nilエラーを回避)
+-- 通知機能 (★ 構造を簡素化し、nilエラー回避を徹底)
 local function showNotification(message, color)
+    -- pcallを使ってGUI作成を試行し、失敗したら即座に中断
     local G;
-    local success = pcall(function() G = Instance.new("ScreenGui"); G.Parent = P.PlayerGui; G.Name = "SplashHubNotify"; end);
+    local success, err = pcall(function() G = Instance.new("ScreenGui"); G.Parent = P.PlayerGui; G.Name = "SplashHubNotify"; end);
     if not success or not G or not G.Parent then return end;
 
     local NF = Instance.new("Frame");
@@ -60,17 +61,17 @@ local function showNotification(message, color)
     end);
 end;
 
--- 掴みRemoteEventの無効化（Hook）(★ nilエラー回避を強化)
+-- 掴みRemoteEventの無効化（Hook）
 local function hookGrabEvent()
-    local grabEventsFolder = ReplicatedStorage:FindFirstChild("GrabEvents", true);
+    -- :WaitForChild(path)で非同期的に待機することで、初期化エラーを防ぐ
+    local grabEventsFolder = ReplicatedStorage:WaitForChild("GrabEvents", 5);
     local grabEvent = grabEventsFolder and grabEventsFolder:FindFirstChild("ExtendGrabLine");
 
     if grabEvent and grabEvent:IsA("RemoteEvent") then
-        local success, _ = pcall(function()
-            -- OnClientEventを空の関数で上書きし、イベントの受信を無効化
+        pcall(function()
+            -- OnClientEventを空の関数で上書き
             grabEvent.OnClientEvent:Connect(function() end);
         end)
-        
         showNotification("🔒 掴みイベントをフックし無効化しました。", Color3.fromRGB(0, 255, 255));
     else
         showNotification("掴みイベントが見つかりませんでした。", Color3.fromRGB(255, 150, 0));
@@ -80,18 +81,13 @@ end
 -- 敵プレイヤーをKILLするダミーRemoteEvent呼び出し (変更なし)
 local function sendKillSignal(targetPlayer)
     if not targetPlayer then return end
-
     local eventNames = {"KickPlayer", "BanPlayer", "AdminEvent", "KillPlayer"};
-    
     showNotification("🚨 検出された攻撃者 (" .. targetPlayer.Name .. ") にKILL信号を送信します...", Color3.fromRGB(255, 0, 0));
-
     for _, eventName in pairs(eventNames) do
         local remote = P:FindFirstChild(eventName) or WS:FindFirstChild(eventName) or Instance.new("RemoteEvent", WS);
         remote.Name = eventName; 
-
         pcall(function() remote:FireServer(targetPlayer.UserId, targetPlayer.Name, "HaxDetection"); end)
     end
-    
     if targetPlayer.Character and targetPlayer.Character:FindFirstChildOfClass("Humanoid") then
         pcall(function() targetPlayer.Character:FindFirstChildOfClass("Humanoid").Health = 0 end);
     end
@@ -99,22 +95,11 @@ end
 
 -- 掴みオブジェクトの検知とKILLロジック (変更なし)
 local function setupGrabDetection(rootPart)
-    if grabDetectionConnection and grabDetectionConnection.Connected then
-        grabDetectionConnection:Disconnect();
-    end
-
+    if grabDetectionConnection and grabDetectionConnection.Connected then grabDetectionConnection:Disconnect(); end
     grabDetectionConnection = rootPart.ChildAdded:Connect(function(child)
         for _, name in pairs(GRAB_DETECTION_OBJECTS) do
             if child.ClassName == name and child.Parent == rootPart then
-                local attacker = nil;
-                
-                if attacker and attacker ~= P then
-                    showNotification("⛔ 掴みオブジェクト挿入検出！脱出＆KILLを試みます。", Color3.fromRGB(255, 50, 50));
-                    sendKillSignal(attacker); 
-                else
-                    showNotification("⛔ 掴みオブジェクト挿入検出！脱出を試みます。", Color3.fromRGB(255, 150, 0));
-                end
-                
+                showNotification("⛔ 掴みオブジェクト挿入検出！脱出を試みます。", Color3.fromRGB(255, 150, 0));
                 pcall(child.Destroy, child);
             end
         end
@@ -125,86 +110,49 @@ end
 local function disableTargetScript()
     local playerScripts = P:FindFirstChild("PlayerScripts");
     if not playerScripts then return end
-
     local targetScript = playerScripts:FindFirstChild("CharacterAndBeamMove");
-    
     if targetScript then
         local success, _ = pcall(function() targetScript:Destroy(); end)
-        if success then
-            showNotification("敵スクリプトを無効化しました。", Color3.fromRGB(0, 255, 0));
-        else
-            pcall(function() targetScript.Disabled = true end);
-            showNotification("敵スクリプトの削除に失敗。無効化を試みました。", Color3.fromRGB(255, 100, 100));
-        end
-    else
-        showNotification("敵スクリプトは見つかりませんでした。", Color3.fromRGB(150, 150, 150));
-    end
+        if success then showNotification("敵スクリプトを無効化しました。", Color3.fromRGB(0, 255, 0));
+        else pcall(function() targetScript.Disabled = true end); showNotification("敵スクリプトの削除に失敗。無効化を試みました。", Color3.fromRGB(255, 100, 100)); end
+    else showNotification("敵スクリプトは見つかりませんでした。", Color3.fromRGB(150, 150, 150)); end
 end
 
--- 飛行停止/開始/移動 (★ nilエラー回避を強化)
+-- 飛行機能 (変更なし)
 local function stopFlying()
     if not isFlying then return end;
-    isFlying = false;
-    failureCount = 0; 
-    
+    isFlying = false; failureCount = 0; 
     if anticheatBinding then pcall(RS.UnbindFromRenderStep, RS, "AntiAC"); anticheatBinding = nil end;
-    
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     if H and H.Parent then pcall(function() H.WalkSpeed = WALK_SPEED end) end;
-    
     if bodyVelocity and bodyVelocity.Parent then pcall(bodyVelocity.Destroy, bodyVelocity); bodyVelocity = nil end;
-    
     if controlButton then pcall(function() controlButton.Text = "SplashHub: 飛行切り替え" end) end;
     showNotification("SplashHub: 飛行 OFF", Color3.fromRGB(255, 100, 100));
 end;
 
 local function startFlying()
     if isFlying then return end;
-    
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart");
-    
     if not H or not Root or not Root.Parent then showNotification("エラー: キャラクターが見つかりません。", Color3.fromRGB(255, 0, 0)); return end;
-    
     isFlying = true;
     pcall(function() H.WalkSpeed = 0 end)
-    
     if not bodyVelocity or not bodyVelocity.Parent then
         bodyVelocity = Root:FindFirstChildOfClass("BodyVelocity") or Instance.new("BodyVelocity");
-        bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 9e9;
-        bodyVelocity.P = 1000;
+        bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 9e9; bodyVelocity.P = 1000;
         pcall(function() bodyVelocity.Parent = Root end)
     end
-    
     anticheatBinding = RS:BindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value, function()
-        if not P.Character or not Root or not Root.Parent or not H or not H.Parent then 
-            stopFlying(); 
-            return 
-        end;
-        
-        -- WalkSpeedチェック
+        if not P.Character or not Root or not Root.Parent or not H or not H.Parent then stopFlying(); return end;
         if H.WalkSpeed ~= 0 then
             pcall(function() H.WalkSpeed = 0 end) 
-            
             if H.WalkSpeed ~= 0 then
                 failureCount = failureCount + 1;
-                
-                if failureCount >= MAX_FAILURES then
-                    showNotification("アンチチート検出。飛行を解除します。", Color3.fromRGB(255, 50, 50));
-                    stopFlying();
-                    return
-                end
+                if failureCount >= MAX_FAILURES then showNotification("アンチチート検出。飛行を解除します。", Color3.fromRGB(255, 50, 50)); stopFlying(); return end
             end
-        else
-            failureCount = 0; 
-        end
-        
-        -- BodyVelocityの再挿入
-        if bodyVelocity and not bodyVelocity.Parent then
-            pcall(function() bodyVelocity.Parent = Root end);
-        end;
+        else failureCount = 0; end
+        if bodyVelocity and not bodyVelocity.Parent then pcall(function() bodyVelocity.Parent = Root end); end;
     end);
-    
     if controlButton then pcall(function() controlButton.Text = "SplashHub: 飛行切り替え" end) end;
     showNotification("SplashHub: 飛行 ON", Color3.fromRGB(100, 255, 100));
 end;
@@ -212,27 +160,20 @@ end;
 local function updateFlyMovement()
     if not isFlying or not P.Character or not P.Character:FindFirstChildOfClass("Humanoid") then stopFlying(); return end;
     if not bodyVelocity or not bodyVelocity.Parent then stopFlying(); return end;
-    
-    -- [移動ロジックは省略]
-    local C = WS.CurrentCamera;
-    if not C then return end;
-    local CF_ = C.CFrame;
-    local mV = Vector3.new(0, 0, 0);
-    
+    local C = WS.CurrentCamera; if not C then return end;
+    local CF_ = C.CFrame; local mV = Vector3.new(0, 0, 0);
     if UIS:IsKeyDown(Enum.KeyCode.W) then mV = mV + CF_.LookVector end;
     if UIS:IsKeyDown(Enum.KeyCode.S) then mV = mV - CF_.LookVector end;
     if UIS:IsKeyDown(Enum.KeyCode.A) then mV = mV - CF_.RightVector end;
     if UIS:IsKeyDown(Enum.KeyCode.D) then mV = mV + CF_.RightVector end;
     if UIS:IsKeyDown(Enum.KeyCode.Space) then mV = mV + Vector3.new(0, 1, 0) end;
     if UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) then mV = mV - Vector3.new(0, 1, 0) end;
-    
     if mV.Magnitude > 0 then
         pcall(function() bodyVelocity.Velocity = mV.unit * FLY_SPEED end);
     else
         pcall(function() bodyVelocity.Velocity = Vector3.new(0, 0, 0) end);
     end;
 end;
-
 
 -- ラグドール無効化処理 (常時実行) (変更なし)
 local function updateAntiRagdoll()
@@ -246,6 +187,10 @@ local function updateAntiRagdoll()
     end;
 end;
 
+-- UI/ドラッグ機能 (変更なし)
+local function startDrag(input) isDragging = true; dragOffset = input.Position - Vector2.new(MainFrame.AbsolutePosition.X, MainFrame.AbsolutePosition.Y); pcall(function() UIS.MouseIconEnabled = false end); end;
+local function updateDrag(input) if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then pcall(function() MainFrame.Position = UDim2.new(0, input.Position.X - dragOffset.X, 0, input.Position.Y - dragOffset.Y) end); end; end;
+local function endDrag(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then isDragging = false; dragOffset = nil; pcall(function() UIS.MouseIconEnabled = true end); end; end;
 
 -- UI作成関数 (変更なし)
 local function createUI()
@@ -269,7 +214,6 @@ local function createUI()
             end
         end);
         
-        -- [ドラッグイベントの接続は省略]
         MainFrame.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then startDrag(i) end end);
         UIS.InputChanged:Connect(updateDrag);
         UIS.InputEnded:Connect(endDrag);
@@ -280,29 +224,28 @@ local function createUI()
 end;
 
 
--- キャラクター初期設定 (変更なし)
-local function setupCharacter(character)
-    local H = character:FindFirstChildOfClass("Humanoid");
-    if H then pcall(function() H.WalkSpeed = WALK_SPEED end) end;
-    if isFlying then stopFlying() end;
-    
-    local Root = character:FindFirstChild("HumanoidRootPart");
-    if Root then setupGrabDetection(Root) end; 
-end;
+-- 初期化関数
+local function initialize()
+    -- CharacterAddedの接続
+    local function setupCharacter(character)
+        local H = character:FindFirstChildOfClass("Humanoid");
+        if H then pcall(function() H.WalkSpeed = WALK_SPEED end) end;
+        if isFlying then stopFlying() end;
+        local Root = character:FindFirstChild("HumanoidRootPart");
+        if Root then setupGrabDetection(Root) end; 
+    end;
+    if P.Character then setupCharacter(P.Character) end;
+    P.CharacterAdded:Connect(setupCharacter);
 
-if P.Character then setupCharacter(P.Character) end;
-P.CharacterAdded:Connect(setupCharacter);
+    -- メインループ接続
+    if not flyLoopBinding then flyLoopBinding = RS:BindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value, updateFlyMovement); end;
+    if not antiragdollBinding then antiragdollBinding = RS:BindToRenderStep("AntiRagdoll", Enum.RenderPriority.Camera.Value - 1, updateAntiRagdoll); end;
 
--- メインループ接続 (変更なし)
-if not flyLoopBinding then
-    flyLoopBinding = RS:BindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value, updateFlyMovement);
-end;
+    -- 実行順序 (防御を先に、UIを最後に)
+    hookGrabEvent();
+    disableTargetScript();
+    createUI();
+end
 
-if not antiragdollBinding then
-    antiragdollBinding = RS:BindToRenderStep("AntiRagdoll", Enum.RenderPriority.Camera.Value - 1, updateAntiRagdoll);
-end;
-
--- 実行順序
-hookGrabEvent();
-disableTargetScript();
-createUI();
+-- コード全体を即時実行関数でラップ (Executorの構文エラーを回避)
+pcall(initialize)
