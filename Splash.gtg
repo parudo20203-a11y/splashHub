@@ -7,7 +7,7 @@ if not P then return end;
 
 local WALK_SPEED = 32;
 local FLY_SPEED = 40; 
-local MAX_FAILURES = 5; -- WalkSpeedリセットの最大失敗回数
+local MAX_FAILURES = 5; -- WalkSpeedリセットの最大失敗回数 (緩和)
 
 local isFlying = false;
 local bodyVelocity = nil;
@@ -67,12 +67,12 @@ end;
 local function stopFlying()
     if not isFlying then return end;
     isFlying = false;
-    failureCount = 0; -- カウンターリセット
+    failureCount = 0; 
     
     if anticheatBinding then pcall(RS.UnbindFromRenderStep, RS, "AntiAC"); anticheatBinding = nil end;
     
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
-    if H then pcall(function() H.PlatformStand = false; H.WalkSpeed = WALK_SPEED end) end;
+    if H and H.Parent then pcall(function() H.PlatformStand = false; H.WalkSpeed = WALK_SPEED end) end;
     
     if bodyVelocity and bodyVelocity.Parent then pcall(bodyVelocity.Destroy, bodyVelocity); bodyVelocity = nil end;
     
@@ -83,10 +83,12 @@ end;
 -- 飛行開始
 local function startFlying()
     if isFlying then return end;
+    
+    -- 参照を確実に取得
     local H = P.Character and P.Character:FindFirstChildOfClass("Humanoid");
     local Root = P.Character and P.Character:FindFirstChild("HumanoidRootPart");
     
-    if not H or not Root then showNotification("エラー: キャラクターが見つかりません。", Color3.fromRGB(255, 0, 0)); return end;
+    if not H or not Root or not Root.Parent then showNotification("エラー: キャラクターが見つかりません。", Color3.fromRGB(255, 0, 0)); return end;
     
     isFlying = true;
     pcall(function() H.WalkSpeed = 0 end)
@@ -96,7 +98,7 @@ local function startFlying()
     bodyVelocity.P = 1000;
     pcall(function() bodyVelocity.Parent = Root end)
     
-    -- アンチチート & ラグドール無効化ループ (最優先で実行)
+    -- アンチチート & ラグドール無効化ループ (最優先、安定性強化)
     anticheatBinding = RS:BindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value, function()
         -- ★ 最重要: オブジェクト生存チェック
         if not P.Character or not Root or not Root.Parent or not H or not H.Parent then 
@@ -106,14 +108,17 @@ local function startFlying()
         
         -- ★ WalkSpeedの強制的なリセットと突破ロジック
         if H.WalkSpeed ~= 0 then
-            failureCount = failureCount + 1;
             pcall(function() H.WalkSpeed = 0 end) -- 異常値を即座に0で上書き
             
-            if failureCount >= MAX_FAILURES then
-                -- MAX_FAILURES回リセットされても0に戻らない場合、アンチチートが強力すぎると判断し、安全に解除
-                showNotification("アンチチートが強力すぎます。飛行を解除します。", Color3.fromRGB(255, 50, 50));
-                stopFlying();
-                return
+            -- WalkSpeedが0でないことを確認（上書きが効かなかった場合）
+            if H.WalkSpeed ~= 0 then
+                failureCount = failureCount + 1;
+                
+                if failureCount >= MAX_FAILURES then
+                    showNotification("アンチチート検出。安全のため飛行を解除します。", Color3.fromRGB(255, 50, 50));
+                    stopFlying();
+                    return
+                end
             end
         else
             failureCount = 0; -- 0であれば成功なのでリセット
@@ -138,7 +143,6 @@ local function updateFlyMovement()
         return 
     end;
     
-    -- BodyVelocityが存在しない場合は、即座に停止してエラーを回避
     if not bodyVelocity or not bodyVelocity.Parent then
         stopFlying();
         return
