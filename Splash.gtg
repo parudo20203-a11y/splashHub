@@ -38,7 +38,6 @@ local function showNotification(message, color)
     T.Font = Enum.Font.SourceSansBold;
     T.TextSize = 18;
     
-    -- pcallでTweenPositionを保護
     pcall(NF.TweenPosition, NF, UDim2.new(1, -310, 1, -50), "Out", "Quart", 0.3, true);
     
     spawn(function()
@@ -74,7 +73,7 @@ local function stopFlying()
     
     if bodyVelocity then pcall(bodyVelocity.Destroy, bodyVelocity); bodyVelocity = nil end;
     
-    if controlButton then pcall(function() controlButton.Text = "飛行切り替え" end) end;
+    if controlButton then pcall(function() controlButton.Text = "SplashHub: 飛行切り替え" end) end;
     showNotification("SplashHub: 飛行 OFF", Color3.fromRGB(255, 100, 100));
 end;
 
@@ -87,22 +86,29 @@ local function startFlying()
     if not H or not Root then showNotification("エラー: キャラクターが見つかりません。", Color3.fromRGB(255, 0, 0)); return end;
     
     isFlying = true;
-    H.WalkSpeed = 0;
+    pcall(function() H.WalkSpeed = 0 end)
     
     bodyVelocity = Root:FindFirstChildOfClass("BodyVelocity") or Instance.new("BodyVelocity");
     bodyVelocity.MaxForce = Vector3.new(1, 1, 1) * 9e9;
     bodyVelocity.P = 1000;
     bodyVelocity.Parent = Root;
     
-    -- アンチチート & ラグドール無効化ループ (安定性強化)
-    anticheatBinding = RS:BindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value + 1, function()
-        -- ★ 最重要: キャラクター自体が存在しない場合は即時停止
+    -- アンチチート & ラグドール無効化ループ (最優先で実行)
+    anticheatBinding = RS:BindToRenderStep("AntiAC", Enum.RenderPriority.Camera.Value, function() -- 優先度をCameraに設定
+        -- 必須オブジェクトチェック
         if not P.Character or not Root.Parent or not H.Parent then 
             stopFlying(); 
             return 
         end;
         
-        -- エラー回避のためのpcall
+        -- ★ FTAP対策: WalkSpeedが強制的に変更されたら即座に自己解除
+        if H.WalkSpeed ~= 0 then
+            showNotification("FTAP検出？: 速度がリセットされました。飛行を解除します。", Color3.fromRGB(255, 150, 0));
+            stopFlying();
+            return
+        end
+        
+        -- ラグドール無効化とBodyVelocityの再挿入
         pcall(function()
             H.PlatformStand = false; 
             if not bodyVelocity.Parent then bodyVelocity.Parent = Root end;
@@ -115,7 +121,6 @@ end;
 
 -- 飛行移動処理 (カメラ方向)
 local function updateFlyMovement()
-    -- ★ 安定性強化: 必要なオブジェクトがない場合は停止
     if not isFlying or not bodyVelocity or not P.Character or not P.Character:FindFirstChildOfClass("Humanoid") then 
         stopFlying();
         return 
@@ -126,7 +131,6 @@ local function updateFlyMovement()
     local CF_ = C.CFrame;
     local mV = Vector3.new(0, 0, 0);
     
-    -- 移動計算ロジック
     if UIS:IsKeyDown(Enum.KeyCode.W) then mV = mV + CF_.LookVector end;
     if UIS:IsKeyDown(Enum.KeyCode.S) then mV = mV - CF_.LookVector end;
     
@@ -136,7 +140,6 @@ local function updateFlyMovement()
     if UIS:IsKeyDown(Enum.KeyCode.Space) then mV = mV + Vector3.new(0, 1, 0) end;
     if UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) then mV = mV - Vector3.new(0, 1, 0) end;
     
-    -- 速度適用
     if mV.Magnitude > 0 then
         pcall(function() bodyVelocity.Velocity = mV.unit * FLY_SPEED end);
     else
@@ -190,7 +193,7 @@ local function createUI()
     controlButton.Position = UDim2.new(0, 0, 0, 0);
     controlButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255);
     controlButton.TextColor3 = Color3.new(1, 1, 1);
-    controlButton.Text = "SplashHub: 飛行切り替え";
+    controlButton.Text = "飛行切り替え";
     controlButton.Font = Enum.Font.SourceSansBold;
     controlButton.TextSize = 18;
     controlButton.ZIndex = 2; 
@@ -243,9 +246,9 @@ end;
 if P.Character then setupCharacter(P.Character) end;
 P.CharacterAdded:Connect(setupCharacter);
 
--- メインループ接続
+-- メインループ接続 (最優先で実行)
 if not flyLoopBinding then
-    flyLoopBinding = RS:BindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value + 1, updateFlyMovement);
+    flyLoopBinding = RS:BindToRenderStep("FlyMovement", Enum.RenderPriority.Character.Value, updateFlyMovement);
 end;
 
 createUI();
