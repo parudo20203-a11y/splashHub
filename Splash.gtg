@@ -6,12 +6,13 @@ local WS = game:GetService("Workspace");
 if not P then return end;
 
 local WALK_SPEED = 32;
-local FLY_SPEED = 40;
+local FLY_SPEED = 40; -- 初期速度
 
 local isFlying = false;
 local bodyVelocity = nil;
 local controlButton = nil;
-local MainFrame = nil; -- UIを動かすための親フレーム
+local speedTextBox = nil;
+local MainFrame = nil;
 local anticheatBinding = nil;
 local flyLoopBinding = nil;
 local isDragging = false;
@@ -37,16 +38,26 @@ local function showNotification(message, color)
     T.Font = Enum.Font.SourceSansBold;
     T.TextSize = 18;
     
-    -- スライドイン
     NF:TweenPosition(UDim2.new(1, -310, 1, -50), "Out", "Quart", 0.3, true);
     
     spawn(function()
         wait(3);
-        -- スライドアウト
         NF:TweenPosition(UDim2.new(1, 0, 1, -50), "In", "Quart", 0.3, true);
         wait(0.3);
         if G and G.Parent then G:Destroy() end;
     end);
+end;
+
+-- 飛行速度の更新処理
+local function updateSpeed()
+    local success, num = pcall(tonumber, speedTextBox.Text);
+    if success and num and num > 0 and num < 500 then -- 0～500の範囲で制限
+        FLY_SPEED = num;
+        showNotification("飛行速度を " .. num .. " に設定しました。", Color3.fromRGB(150, 255, 255));
+    else
+        showNotification("無効な速度値です。", Color3.fromRGB(255, 50, 50));
+        speedTextBox.Text = tostring(FLY_SPEED); -- 元に戻す
+    end
 end;
 
 -- 飛行停止
@@ -93,15 +104,12 @@ local function updateFlyMovement()
     local CF_ = C.CFrame;
     local mV = Vector3.new(0, 0, 0);
     
-    -- カメラ方向への移動 (W/S)
     if UIS:IsKeyDown(Enum.KeyCode.W) then mV = mV + CF_.LookVector end;
     if UIS:IsKeyDown(Enum.KeyCode.S) then mV = mV - CF_.LookVector end;
     
-    -- カメラ視点基準の左右移動 (A/D)
     if UIS:IsKeyDown(Enum.KeyCode.A) then mV = mV - CF_.RightVector end;
     if UIS:IsKeyDown(Enum.KeyCode.D) then mV = mV + CF_.RightVector end;
     
-    -- 絶対的な上下移動 (Space/Shift)
     if UIS:IsKeyDown(Enum.KeyCode.Space) then mV = mV + Vector3.new(0, 1, 0) end;
     if UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) then mV = mV - Vector3.new(0, 1, 0) end;
     
@@ -144,20 +152,20 @@ local function createUI()
     G.Name = "SplashHubControlGui";
     G.Parent = P.PlayerGui;
     
-    -- ★ 新しいドラッグ可能なメインフレーム (白い半透明、ボタンの3倍の長さ)
+    -- メインフレーム (白い半透明、ドラッグ可能)
     MainFrame = Instance.new("Frame");
     MainFrame.Name = "MainFrame";
-    MainFrame.Size = UDim2.new(0, 450, 0, 40); -- 150*3 = 450
+    MainFrame.Size = UDim2.new(0, 450, 0, 40);
     MainFrame.Position = UDim2.new(0, 10, 0, 10);
-    MainFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255); -- 白
-    MainFrame.BackgroundTransparency = 0.5; -- 半透明
+    MainFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
+    MainFrame.BackgroundTransparency = 0.5;
     MainFrame.Parent = G;
     
-    -- 飛行切り替えボタン
+    -- 飛行切り替えボタン (左端)
     controlButton = Instance.new("TextButton");
     controlButton.Name = "FlyToggle";
     controlButton.Size = UDim2.new(0, 150, 1, 0);
-    controlButton.Position = UDim2.new(0, 0, 0, 0); -- MainFrameの左端に配置
+    controlButton.Position = UDim2.new(0, 0, 0, 0);
     controlButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255);
     controlButton.TextColor3 = Color3.new(1, 1, 1);
     controlButton.Text = "SplashHub: 飛行切り替え";
@@ -165,8 +173,40 @@ local function createUI()
     controlButton.TextSize = 18;
     controlButton.Parent = MainFrame;
 
-    -- イベント接続
+    -- 速度調整ラベル (中央)
+    local speedLabel = Instance.new("TextLabel");
+    speedLabel.Name = "SpeedLabel";
+    speedLabel.Size = UDim2.new(0, 80, 1, 0);
+    speedLabel.Position = UDim2.new(0, 150, 0, 0); -- ボタンの右
+    speedLabel.BackgroundTransparency = 1;
+    speedLabel.TextColor3 = Color3.new(0, 0, 0);
+    speedLabel.Text = "速度調整:";
+    speedLabel.Font = Enum.Font.SourceSansBold;
+    speedLabel.TextSize = 18;
+    speedLabel.Parent = MainFrame;
+    
+    -- 速度入力テキストボックス (右)
+    speedTextBox = Instance.new("TextBox");
+    speedTextBox.Name = "SpeedInput";
+    speedTextBox.Size = UDim2.new(0, 70, 0.8, 0);
+    speedTextBox.Position = UDim2.new(0, 230, 0.1, 0); -- ラベルの右
+    speedTextBox.BackgroundColor3 = Color3.new(1, 1, 1);
+    speedTextBox.BackgroundTransparency = 0.3;
+    speedTextBox.TextColor3 = Color3.new(0, 0, 0);
+    speedTextBox.Text = tostring(FLY_SPEED);
+    speedTextBox.Font = Enum.Font.SourceSansBold;
+    speedTextBox.TextSize = 18;
+    speedTextBox.Parent = MainFrame;
+    
+    -- イベント接続: ボタン
     controlButton.MouseButton1Click:Connect(function() if isFlying then stopFlying() else startFlying() end end);
+    
+    -- イベント接続: 速度入力
+    speedTextBox.FocusLost:Connect(function(enterPressed)
+        if enterPressed or not enterPressed then updateSpeed() end
+    end);
+    
+    -- イベント接続: ドラッグ
     MainFrame.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then startDrag(i) end end);
     UIS.InputChanged:Connect(updateDrag);
     UIS.InputEnded:Connect(endDrag);
