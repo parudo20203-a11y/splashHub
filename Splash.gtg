@@ -1,6 +1,5 @@
 -- ====================================================================
--- SplashHub: UI付き統合安定版
--- 目的: UIと通知を復元しつつ、防御機能と起動安定性を最大化
+-- SplashHub: KILL信号削除済み UI安定版
 -- ====================================================================
 local P = game:GetService("Players").LocalPlayer;
 local UIS = game:GetService("UserInputService");
@@ -30,12 +29,12 @@ local isDragging = false;
 local dragOffset = nil;
 local failureCount = 0;
 
--- 通知機能 (UI機能の安定性を高めるため、pcallを多用)
+-- 通知機能
 local function showNotification(message, color)
     local G = Instance.new("ScreenGui");
     if not P.PlayerGui then return end
     pcall(function() G.Parent = P.PlayerGui; G.Name = "SplashHubNotify"; end);
-    if not G.Parent then return end; -- 親の設定失敗をチェック
+    if not G.Parent then return end;
 
     local NF = Instance.new("Frame");
     local T = Instance.new("TextLabel");
@@ -97,7 +96,9 @@ local function hookGrabEvents()
     end
 end
 
--- 掴みオブジェクトの検知と破壊
+-- ★ KILL信号関連の関数 (sendKillSignal) は完全に削除されました。
+
+-- 掴みオブジェクトの検知と破壊 (KILL信号は送りません)
 local function setupGrabDetection(rootPart)
     if grabDetectionConnection and grabDetectionConnection.Connected then grabDetectionConnection:Disconnect(); end
     grabDetectionConnection = rootPart.ChildAdded:Connect(function(child)
