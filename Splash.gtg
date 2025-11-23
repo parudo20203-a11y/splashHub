@@ -6,7 +6,7 @@ local WS = game:GetService("Workspace");
 if not P then return end;
 
 local WALK_SPEED = 32;
-local FLY_SPEED = 40; -- 初期速度
+local FLY_SPEED = 40; 
 
 local isFlying = false;
 local bodyVelocity = nil;
@@ -50,6 +50,7 @@ end;
 
 -- 飛行速度の更新処理
 local function updateSpeed()
+    if not speedTextBox then return end
     local success, num = pcall(tonumber, speedTextBox.Text);
     if success and num and num > 0 and num < 500 then -- 0～500の範囲で制限
         FLY_SPEED = num;
@@ -171,31 +172,34 @@ local function createUI()
     controlButton.Text = "SplashHub: 飛行切り替え";
     controlButton.Font = Enum.Font.SourceSansBold;
     controlButton.TextSize = 18;
+    controlButton.ZIndex = 2; -- ★ ZIndexを設定
     controlButton.Parent = MainFrame;
 
     -- 速度調整ラベル (中央)
     local speedLabel = Instance.new("TextLabel");
     speedLabel.Name = "SpeedLabel";
     speedLabel.Size = UDim2.new(0, 80, 1, 0);
-    speedLabel.Position = UDim2.new(0, 150, 0, 0); -- ボタンの右
+    speedLabel.Position = UDim2.new(0, 150, 0, 0); 
     speedLabel.BackgroundTransparency = 1;
     speedLabel.TextColor3 = Color3.new(0, 0, 0);
     speedLabel.Text = "速度調整:";
     speedLabel.Font = Enum.Font.SourceSansBold;
     speedLabel.TextSize = 18;
+    speedLabel.ZIndex = 2; -- ★ ZIndexを設定
     speedLabel.Parent = MainFrame;
     
     -- 速度入力テキストボックス (右)
     speedTextBox = Instance.new("TextBox");
     speedTextBox.Name = "SpeedInput";
     speedTextBox.Size = UDim2.new(0, 70, 0.8, 0);
-    speedTextBox.Position = UDim2.new(0, 230, 0.1, 0); -- ラベルの右
+    speedTextBox.Position = UDim2.new(0, 230, 0.1, 0); 
     speedTextBox.BackgroundColor3 = Color3.new(1, 1, 1);
     speedTextBox.BackgroundTransparency = 0.3;
     speedTextBox.TextColor3 = Color3.new(0, 0, 0);
     speedTextBox.Text = tostring(FLY_SPEED);
     speedTextBox.Font = Enum.Font.SourceSansBold;
     speedTextBox.TextSize = 18;
+    speedTextBox.ZIndex = 3; -- ★ 最前面に表示されるようにZIndexを高く設定
     speedTextBox.Parent = MainFrame;
     
     -- イベント接続: ボタン
