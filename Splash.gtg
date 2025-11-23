@@ -61,7 +61,7 @@ local function stopFlying()
     end
     
     if bodyVelocity then bodyVelocity:Destroy() bodyVelocity = nil end
-    if controlButton then controlButton.Text = "LoLHub: 飛行 OFF" end
+    if controlButton then controlButton.Text = "Splash Hub: 飛行 OFF" end
 end
 
 local function startFlying()
